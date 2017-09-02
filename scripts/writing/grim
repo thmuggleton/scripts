@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+#
+# Takes a regular expression pattern and performs a case-insensitive match
+# using a grep utility.  The user is then presented with the list of results;
+# making a selection will open the given file at the matching line using Vim.
+#
+# Copyright (C) 2017 Thomas H. Muggleton
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of version 3 of the GNU General Public License as published by the
+# Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.  For more details, see the GNU General Public
+# License, included in the LICENSE file in the root directory of this project
+# or available at: http://www.gnu.org/licenses/
+
+PATTERN=$1
+
+if [ -z ${PATTERN} ]; then
+  echo 'Usage:'
+  echo '    grim PATTERN [NUM_RESULTS]'
+  exit 1
+fi
+
+NUM_RESULTS_LIMIT=${2:-10}
+PLACEHOLDER_FOR_SPACES_AND_TABS="__^^__"
+
+GIT_STATUS="$(git status --porcelain 2>&1)"
+
+if [[ -n $(echo "$GIT_STATUS" | grep '^fatal') ]]; then
+  GREP_COMMAND='grep -R --ignore-case --binary-files=without-match --with-filename --line-number'
+else
+  GREP_COMMAND='git grep --line-number --ignore-case -I'
+fi
+
+RESULTS=( "$(${GREP_COMMAND} "${PATTERN}" | tr ' \t' "${PLACEHOLDER_FOR_SPACES_AND_TABS}" )" )
+
+if [ -z "${RESULTS}" ]; then
+  exit 1
+fi
+
+LINE_NUMBER=1
+declare -a SEPARATED_RESULTS
+
+for LINE in ${RESULTS[@]}; do
+  if (( ${LINE_NUMBER} > ${NUM_RESULTS_LIMIT} )); then
+    echo '...'
+    break
+  fi
+
+  SEPARATED_RESULTS[${LINE_NUMBER}]="${LINE}"
+  echo "${LINE_NUMBER}: $(echo ${LINE} | tr "${PLACEHOLDER_FOR_SPACES_AND_TABS}" ' ')"
+  (( LINE_NUMBER+=1 ))
+done
+
+echo
+echo -n 'Choose a file: '
+read SELECTION_INDEX
+
+NUM_RESULTS=${#SEPARATED_RESULTS[@]}
+
+if (( "${SELECTION_INDEX}" > 0 && "${SELECTION_INDEX}" <= ${NUM_RESULTS} )); then
+  SELECTION="${SEPARATED_RESULTS[${SELECTION_INDEX}]}"
+
+  SELECTION_FILENAME=$(echo ${SELECTION} | cut -d: -f1)
+  SELECTION_LINE_NUMBER=$(echo ${SELECTION} | cut -d: -f2)
+
+  vim +${SELECTION_LINE_NUMBER} "${SELECTION_FILENAME}"
+else
+  exit 1
+fi
